@@ -1,7 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { toApiError } from '@/lib/errors'
 import type { CleaningResult } from '@/lib/database.types'
-import { addOutboxEntry, flushOutbox } from '@/lib/outbox'
+import { addOutboxEntry } from '@/lib/outbox'
 
 export async function completeCleaning(params: {
   apartmentId: number
