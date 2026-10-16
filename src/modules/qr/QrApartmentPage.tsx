@@ -7,7 +7,7 @@ import {
   fetchNotes,
   addNote,
   uploadNoteFile,
-  createSignedUrl,
+  createSignedUrls,
   fetchWhatsappContacts,
 } from '@/modules/qr/api'
 import { fetchCleaningEvents } from '@/modules/cleaning/store'
@@ -150,17 +150,14 @@ export function QrApartmentPage() {
 
   useEffect(() => {
     const loadUrls = async () => {
-      const missing = notePhotos.filter((n) => n.photo_path && !noteFileUrls.has(n.photo_path))
+      const missing = notePhotos
+        .map((n) => n.photo_path!)
+        .filter((p) => !noteFileUrls.has(p))
       if (missing.length === 0) return
-      const newUrls = new Map<string, string>()
-      for (const note of missing) {
-        if (!note.photo_path) continue
-        try {
-          const url = await createSignedUrl(note.photo_path)
-          newUrls.set(note.photo_path, url)
-        } catch { /* leave as unavailable */ }
-      }
-      if (newUrls.size > 0) setNoteFileUrls((prev) => { const merged = new Map(prev); newUrls.forEach((v, k) => merged.set(k, v)); return merged })
+      try {
+        const newUrls = await createSignedUrls(missing)
+        if (newUrls.size > 0) setNoteFileUrls((prev) => { const merged = new Map(prev); newUrls.forEach((v, k) => merged.set(k, v)); return merged })
+      } catch { /* leave as unavailable */ }
     }
     loadUrls()
   }, [notePhotos])
@@ -471,10 +468,13 @@ function WhatsappSection({
   const buildMessage = async (contact: Contact) => {
     const parts: string[] = [apartment.code, apartment.building]
     if (text.trim()) parts.push(text.trim())
-    for (const path of selectedFiles) {
+    if (selectedFiles.size > 0) {
       try {
-        const url = await createSignedUrl(path)
-        parts.push(url)
+        const urlMap = await createSignedUrls(Array.from(selectedFiles))
+        for (const path of selectedFiles) {
+          const url = urlMap.get(path)
+          if (url) parts.push(url)
+        }
       } catch { /* skip broken */ }
     }
     const digits = contact.phone_e164.replace(/[^0-9]/g, '')

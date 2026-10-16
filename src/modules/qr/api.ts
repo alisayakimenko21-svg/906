@@ -109,6 +109,31 @@ export async function createSignedUrl(path: string): Promise<string> {
   return data.signedUrl
 }
 
+export async function createSignedUrls(paths: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+  const missing = paths.filter((p) => {
+    const cached = signedUrlCache.get(p)
+    if (cached && cached.expires > Date.now() + 60_000) {
+      result.set(p, cached.url)
+      return false
+    }
+    return true
+  })
+  if (missing.length === 0) return result
+
+  const { data, error } = await supabase.storage
+    .from('incident-photos')
+    .createSignedUrls(missing, SIGNED_URL_TTL)
+  if (error) throw toApiError(error)
+  for (const item of data ?? []) {
+    if (item.signedUrl && item.path) {
+      result.set(item.path, item.signedUrl)
+      signedUrlCache.set(item.path, { url: item.signedUrl, expires: Date.now() + SIGNED_URL_TTL * 1000 })
+    }
+  }
+  return result
+}
+
 export async function fetchWhatsappContacts(): Promise<Contact[]> {
   const { data, error, status } = await supabase
     .from('contacts')
