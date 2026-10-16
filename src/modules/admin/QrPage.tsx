@@ -8,6 +8,18 @@ import type { SvApartment } from '@/lib/database.types'
 
 const SETTINGS_KEY = 'app_base_url'
 
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return window.location.origin
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return window.location.origin
+    return parsed.origin + parsed.pathname.replace(/\/+$/, '')
+  } catch {
+    return window.location.origin
+  }
+}
+
 function useAppBaseUrl(): [string, (v: string) => void] {
   const [url, setUrl] = useState<string>(window.location.origin)
   const [loaded, setLoaded] = useState(false)
@@ -20,18 +32,19 @@ function useAppBaseUrl(): [string, (v: string) => void] {
       .maybeSingle()
       .then(({ data }) => {
         if (data?.value) {
-          try { setUrl(JSON.parse(data.value as string)) } catch { /* ignore */ }
+          try { setUrl(normalizeBaseUrl(JSON.parse(data.value as string))) } catch { /* ignore */ }
         }
         setLoaded(true)
       })
   }, [])
 
   const save = useCallback((v: string) => {
-    setUrl(v)
+    const normalized = normalizeBaseUrl(v)
+    setUrl(normalized)
     if (!loaded) return
     supabase
       .from('settings')
-      .upsert({ key: SETTINGS_KEY, value: JSON.stringify(v) })
+      .upsert({ key: SETTINGS_KEY, value: JSON.stringify(normalized) })
       .then(({ error }) => {
         if (error) toast(errorMessage(error), 'error')
       })
@@ -78,7 +91,7 @@ export function QrPage() {
   const generateQr = useCallback(async (aptId: number, url: string) => {
     const cached = qrCache.get(aptId)
     if (cached) return cached
-    const dataUrl = await QRCode.toDataURL(`${url}/qr/${aptId}`, { width: 256, margin: 1 })
+    const dataUrl = await QRCode.toDataURL(`${normalizeBaseUrl(url)}/qr/${aptId}`, { width: 256, margin: 1 })
     setQrCache((prev) => new Map(prev).set(aptId, dataUrl))
     return dataUrl
   }, [qrCache])
@@ -103,7 +116,7 @@ export function QrPage() {
 
   const copyLink = async (aptId: number) => {
     try {
-      await navigator.clipboard.writeText(`${baseUrl}/qr/${aptId}`)
+      await navigator.clipboard.writeText(`${normalizeBaseUrl(baseUrl)}/qr/${aptId}`)
       toast(t.qr.linkCopied, 'success')
     } catch {
       toast(t.common.clipboardError, 'error')
