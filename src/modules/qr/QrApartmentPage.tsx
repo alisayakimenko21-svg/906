@@ -9,18 +9,32 @@ import {
   uploadNoteFile,
   createSignedUrls,
   fetchWhatsappContacts,
+  fetchApartmentIncidents,
 } from '@/modules/qr/api'
 import { fetchCleaningEvents } from '@/modules/cleaning/store'
-import type { SvCleaningEvent } from '@/lib/database.types'
+import type { SvCleaningEvent, Incident, IncidentKind, IncidentStatus } from '@/lib/database.types'
 import type { SvApartment, SvNorm, SvItem, ApartmentNote, Contact, NormType } from '@/lib/database.types'
 import { useAuth } from '@/modules/core/store'
 import { useI18n } from '@/i18n'
 import { formatDateTime, isToday, formatQty } from '@/lib/format'
 import { toast, errorMessage } from '@/lib/toast'
 import { getOutboxSummary, subscribe, flushOutbox } from '@/lib/outbox'
-import { CircleCheck as CheckCircle2, Wrench, Search, Send, Camera, Video, X, FileText, Loader as Loader2, MessageCircle, RefreshCw } from 'lucide-react'
+import {
+  CircleCheck as CheckCircle2, Wrench, Search, Send, Camera, Video, X, FileText,
+  Loader as Loader2, MessageCircle, RefreshCw, ChevronRight, Image as ImageIcon,
+} from 'lucide-react'
 
 const normTypeOrder: NormType[] = ['asset_standing', 'turnover_replenish', 'cleaning_consumption']
+
+type Tab = 'norms' | 'comments' | 'whatsapp' | 'history' | 'incidents'
+type DetailType = 'note' | 'cleaning' | 'incident'
+
+interface DetailState {
+  type: DetailType
+  note?: ApartmentNote
+  cleaning?: SvCleaningEvent
+  incident?: Incident
+}
 
 export function QrApartmentPage() {
   const { t, n } = useI18n()
@@ -40,15 +54,17 @@ export function QrApartmentPage() {
   const [items, setItems] = useState<SvItem[]>([])
   const [notes, setNotes] = useState<ApartmentNote[]>([])
   const [contacts, setContacts] = useState<Contact[]>([])
+  const [incidents, setIncidents] = useState<Incident[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
   const [pendingCount, setPendingCount] = useState(0)
   const [failedCount, setFailedCount] = useState(0)
-  const [tab, setTab] = useState<'norms' | 'comments' | 'whatsapp' | 'history'>('norms')
+  const [tab, setTab] = useState<Tab>('norms')
   const [cleaningEvents, setCleaningEvents] = useState<SvCleaningEvent[]>([])
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState<string>('')
+  const [detail, setDetail] = useState<DetailState | null>(null)
 
   const [noteText, setNoteText] = useState('')
   const [sendingNote, setSendingNote] = useState(false)
@@ -57,24 +73,34 @@ export function QrApartmentPage() {
   const videoInputRef = useRef<HTMLInputElement>(null)
 
   const [noteFileUrls, setNoteFileUrls] = useState<Map<string, string>>(new Map())
+  const [incidentFileUrls, setIncidentFileUrls] = useState<Map<string, string>>(new Map())
 
   const loadAll = useCallback(async () => {
     if (!aptId || !profile) return
-    const [apt, nr, it, no, ct] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchApartment(aptId),
       fetchNorms(profile.id, aptId),
       fetchItems(),
       fetchNotes(aptId),
       fetchWhatsappContacts(),
+      fetchCleaningEvents(aptId),
+      fetchApartmentIncidents(aptId),
     ])
+    const apt = results[0].status === 'fulfilled' ? results[0].value : null
     if (!apt) { setNotFound(true); setLoading(false); return }
-    const ce = await fetchCleaningEvents(aptId)
+    const nr = results[1].status === 'fulfilled' ? results[1].value : []
+    const it = results[2].status === 'fulfilled' ? results[2].value : []
+    const no = results[3].status === 'fulfilled' ? results[3].value : []
+    const ct = results[4].status === 'fulfilled' ? results[4].value : []
+    const ce = results[5].status === 'fulfilled' ? results[5].value : []
+    const inc = results[6].status === 'fulfilled' ? results[6].value : []
     setApartment(apt)
     setNorms(nr)
     setItems(it)
     setNotes(no)
     setContacts(ct)
     setCleaningEvents(ce)
+    setIncidents(inc)
     setLastUpdated(new Date())
   }, [aptId, profile?.id])
 
@@ -148,6 +174,11 @@ export function QrApartmentPage() {
 
   const notePhotos = useMemo(() => notes.filter((note) => note.photo_path), [notes])
 
+  const incidentPhotos = useMemo(
+    () => incidents.flatMap((inc) => inc.photo_paths.map((p) => ({ path: p, incident: inc }))),
+    [incidents],
+  )
+
   useEffect(() => {
     const loadUrls = async () => {
       const missing = notePhotos
@@ -161,6 +192,20 @@ export function QrApartmentPage() {
     }
     loadUrls()
   }, [notePhotos])
+
+  useEffect(() => {
+    const loadUrls = async () => {
+      const missing = incidentPhotos
+        .map((p) => p.path)
+        .filter((p) => !incidentFileUrls.has(p))
+      if (missing.length === 0) return
+      try {
+        const newUrls = await createSignedUrls(missing)
+        if (newUrls.size > 0) setIncidentFileUrls((prev) => { const merged = new Map(prev); newUrls.forEach((v, k) => merged.set(k, v)); return merged })
+      } catch { /* leave as unavailable */ }
+    }
+    loadUrls()
+  }, [incidentPhotos])
 
   const handleAddNote = async (photoPath: string | null) => {
     if (!noteText.trim() && !photoPath) return
@@ -240,6 +285,7 @@ export function QrApartmentPage() {
           <TabButton active={tab === 'comments'} onClick={() => setTab('comments')} label={t.qr.comments} />
           <TabButton active={tab === 'whatsapp'} onClick={() => setTab('whatsapp')} label={t.qr.whatsapp} />
           <TabButton active={tab === 'history'} onClick={() => setTab('history')} label={t.qr.historyTab} />
+          <TabButton active={tab === 'incidents'} onClick={() => setTab('incidents')} label={t.qr.incidentsTab} />
         </div>
       </div>
 
@@ -349,17 +395,29 @@ export function QrApartmentPage() {
               const url = note.photo_path ? noteFileUrls.get(note.photo_path) : null
               const isImg = note.photo_path ? isFileImage(note.photo_path) : false
               return (
-                <div key={note.id} className="bg-surface rounded-xl border border-line px-4 py-3">
-                  <p className="text-sm text-ink">{note.body}</p>
+                <button
+                  key={note.id}
+                  onClick={() => setDetail({ type: 'note', note })}
+                  className="w-full text-left bg-surface rounded-xl border border-line px-4 py-3 transition-colors hover:bg-app active:bg-app"
+                >
+                  <p className="text-sm text-ink line-clamp-3">{note.body}</p>
                   {note.photo_path && (
-                    <div className="mt-2">
-                      {url && isImg && <img src={url} alt="" className="rounded-xl max-h-64 object-cover" />}
-                      {url && !isImg && <video src={url} controls className="rounded-xl max-h-64 w-full" />}
-                      {!url && <p className="text-xs text-muted">{t.qr.fileUnavailable}</p>}
+                    <div className="mt-2 flex items-center gap-2">
+                      {url && isImg && <img src={url} alt="" className="rounded-lg w-16 h-16 object-cover" />}
+                      {url && !isImg && <video src={url} className="rounded-lg w-16 h-16 object-cover" />}
+                      {!url && (
+                        <div className="w-16 h-16 rounded-lg bg-app flex items-center justify-center">
+                          <ImageIcon className="w-5 h-5 text-muted" />
+                        </div>
+                      )}
+                      <span className="text-xs text-muted">{t.qr.detailPhotos}</span>
                     </div>
                   )}
-                  <p className="text-xs text-muted mt-1.5">{n(formatDateTime(note.created_at))}</p>
-                </div>
+                  <div className="flex items-center justify-between mt-1.5">
+                    <p className="text-xs text-muted">{n(formatDateTime(note.created_at))}</p>
+                    <ChevronRight className="w-4 h-4 text-muted" />
+                  </div>
+                </button>
               )
             })}
           </div>
@@ -380,21 +438,72 @@ export function QrApartmentPage() {
               <p className="text-sm text-muted text-center mt-8">{t.qr.noCleaningHistory}</p>
             ) : (
               cleaningEvents.map((ev) => (
-                <div key={ev.id} className="bg-surface rounded-xl border border-line px-4 py-3">
+                <button
+                  key={ev.id}
+                  onClick={() => setDetail({ type: 'cleaning', cleaning: ev })}
+                  className="w-full text-left bg-surface rounded-xl border border-line px-4 py-3 transition-colors hover:bg-app active:bg-app"
+                >
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-ink">{n(formatDateTime(ev.cleaned_at))}</span>
-                    {ev.status === 'reversed' && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-bad-soft text-bad font-medium">
-                        {t.qr.cleaningReversed}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {ev.status === 'reversed' && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-bad-soft text-bad font-medium">
+                          {t.qr.cleaningReversed}
+                        </span>
+                      )}
+                      <ChevronRight className="w-4 h-4 text-muted" />
+                    </div>
                   </div>
                   <p className="text-xs text-muted mt-1">
                     {ev.staff_names ?? t.qr.staffNamesEmpty}
                   </p>
-                  {ev.note && <p className="text-xs text-muted mt-1">{ev.note}</p>}
-                </div>
+                  {ev.note && <p className="text-xs text-muted mt-1 line-clamp-2">{ev.note}</p>}
+                </button>
               ))
+            )}
+          </div>
+        )}
+
+        {tab === 'incidents' && (
+          <div className="space-y-3">
+            {incidents.length === 0 ? (
+              <p className="text-sm text-muted text-center mt-8">{t.qr.noIncidents}</p>
+            ) : (
+              incidents.map((inc) => {
+                const hasPhotos = inc.photo_paths.length > 0
+                const firstPhoto = hasPhotos ? incidentFileUrls.get(inc.photo_paths[0]) : null
+                return (
+                  <button
+                    key={inc.id}
+                    onClick={() => setDetail({ type: 'incident', incident: inc })}
+                    className="w-full text-left bg-surface rounded-xl border border-line px-4 py-3 transition-colors hover:bg-app active:bg-app"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-ink">{kindLabel(inc.kind, t)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(inc.status)}`}>
+                          {statusLabel(inc.status, t)}
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-muted" />
+                      </div>
+                    </div>
+                    <p className="text-sm text-ink mt-1 line-clamp-2">
+                      {inc.free_text ?? inc.comment ?? '—'}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {hasPhotos && firstPhoto && (
+                        <img src={firstPhoto} alt="" className="w-12 h-12 rounded-lg object-cover" />
+                      )}
+                      {hasPhotos && !firstPhoto && (
+                        <div className="w-12 h-12 rounded-lg bg-app flex items-center justify-center">
+                          <ImageIcon className="w-4 h-4 text-muted" />
+                        </div>
+                      )}
+                      <span className="text-xs text-muted">{n(formatDateTime(inc.created_at))}</span>
+                    </div>
+                  </button>
+                )
+              })
             )}
           </div>
         )}
@@ -429,7 +538,198 @@ export function QrApartmentPage() {
           </div>
         )}
       </div>
+
+      {/* Detail modal */}
+      {detail && (
+        <DetailModal
+          state={detail}
+          onClose={() => setDetail(null)}
+          noteFileUrls={noteFileUrls}
+          incidentFileUrls={incidentFileUrls}
+          t={t}
+          n={n}
+        />
+      )}
     </div>
+  )
+}
+
+function DetailModal({
+  state,
+  onClose,
+  noteFileUrls,
+  incidentFileUrls,
+  t,
+  n,
+}: {
+  state: DetailState
+  onClose: () => void
+  noteFileUrls: Map<string, string>
+  incidentFileUrls: Map<string, string>
+  t: ReturnType<typeof useI18n>['t']
+  n: ReturnType<typeof useI18n>['n']
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/50 anim-scrim" onClick={onClose} />
+      <div className="relative bg-surface w-full sm:max-w-md max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl border border-line anim-drawer">
+        <div className="sticky top-0 bg-surface border-b border-line px-4 py-3 flex items-center justify-between">
+          <h3 className="text-base font-semibold text-ink">
+            {state.type === 'note' && t.qr.comments}
+            {state.type === 'cleaning' && t.qr.historyTab}
+            {state.type === 'incident' && t.qr.incidentsTab}
+          </h3>
+          <button onClick={onClose} className="p-1 -mr-1">
+            <X className="w-5 h-5 text-muted" />
+          </button>
+        </div>
+        <div className="px-4 py-4 space-y-3">
+          {state.type === 'note' && state.note && (
+            <NoteDetail note={state.note} fileUrls={noteFileUrls} t={t} n={n} />
+          )}
+          {state.type === 'cleaning' && state.cleaning && (
+            <CleaningDetail event={state.cleaning} t={t} n={n} />
+          )}
+          {state.type === 'incident' && state.incident && (
+            <IncidentDetail incident={state.incident} fileUrls={incidentFileUrls} t={t} n={n} />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NoteDetail({
+  note,
+  fileUrls,
+  t,
+  n,
+}: {
+  note: ApartmentNote
+  fileUrls: Map<string, string>
+  t: ReturnType<typeof useI18n>['t']
+  n: ReturnType<typeof useI18n>['n']
+}) {
+  const url = note.photo_path ? fileUrls.get(note.photo_path) : null
+  const isImg = note.photo_path ? isFileImage(note.photo_path) : false
+  return (
+    <>
+      <p className="text-sm text-ink whitespace-pre-wrap">{note.body}</p>
+      {note.photo_path && (
+        <div className="mt-2">
+          {url && isImg && <img src={url} alt="" className="rounded-xl w-full max-h-96 object-contain bg-app" />}
+          {url && !isImg && <video src={url} controls className="rounded-xl w-full max-h-96" />}
+          {!url && <p className="text-xs text-muted">{t.qr.fileUnavailable}</p>}
+        </div>
+      )}
+      <div className="text-xs text-muted pt-2 border-t border-line">
+        <span>{n(formatDateTime(note.created_at))}</span>
+      </div>
+    </>
+  )
+}
+
+function CleaningDetail({
+  event,
+  t,
+  n,
+}: {
+  event: SvCleaningEvent
+  t: ReturnType<typeof useI18n>['t']
+  n: ReturnType<typeof useI18n>['n']
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-ink">{n(formatDateTime(event.cleaned_at))}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+          event.status === 'done' ? 'bg-ok-soft text-ok' : 'bg-bad-soft text-bad'
+        }`}>
+          {event.status === 'done' ? t.admin.apartments.done : t.admin.apartments.reversed}
+        </span>
+      </div>
+      <div className="space-y-2 pt-2 border-t border-line">
+        <div>
+          <span className="text-xs text-muted block mb-0.5">{t.qr.detailStaff}</span>
+          <span className="text-sm text-ink">{event.staff_names ?? t.qr.staffNamesEmpty}</span>
+        </div>
+        {event.note && (
+          <div>
+            <span className="text-xs text-muted block mb-0.5">{t.qr.detailNote}</span>
+            <span className="text-sm text-ink whitespace-pre-wrap">{event.note}</span>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function IncidentDetail({
+  incident,
+  fileUrls,
+  t,
+  n,
+}: {
+  incident: Incident
+  fileUrls: Map<string, string>
+  t: ReturnType<typeof useI18n>['t']
+  n: ReturnType<typeof useI18n>['n']
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-ink">{kindLabel(incident.kind, t)}</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor(incident.status)}`}>
+          {statusLabel(incident.status, t)}
+        </span>
+      </div>
+      <div className="space-y-2 pt-2 border-t border-line">
+        <div>
+          <span className="text-xs text-muted block mb-0.5">{t.qr.detailDate}</span>
+          <span className="text-sm text-ink">{n(formatDateTime(incident.created_at))}</span>
+        </div>
+        {incident.free_text && (
+          <div>
+            <span className="text-xs text-muted block mb-0.5">{t.qr.detailItem}</span>
+            <span className="text-sm text-ink">{incident.free_text}</span>
+          </div>
+        )}
+        <div>
+          <span className="text-xs text-muted block mb-0.5">{t.qr.detailQty}</span>
+          <span className="text-sm text-ink">{n(String(incident.qty))} {t.common.units.pcs}</span>
+        </div>
+        {incident.comment && (
+          <div>
+            <span className="text-xs text-muted block mb-0.5">{t.qr.detailComment}</span>
+            <span className="text-sm text-ink whitespace-pre-wrap">{incident.comment}</span>
+          </div>
+        )}
+        {incident.resolution_note && (
+          <div>
+            <span className="text-xs text-muted block mb-0.5">{t.admin.adminIncidents.note}</span>
+            <span className="text-sm text-ink">{incident.resolution_note}</span>
+          </div>
+        )}
+        {incident.photo_paths.length > 0 && (
+          <div>
+            <span className="text-xs text-muted block mb-1">{t.qr.detailPhotos}</span>
+            <div className="space-y-2">
+              {incident.photo_paths.map((path) => {
+                const url = fileUrls.get(path)
+                const isImg = isFileImage(path)
+                return (
+                  <div key={path}>
+                    {url && isImg && <img src={url} alt="" className="rounded-xl w-full max-h-96 object-contain bg-app" />}
+                    {url && !isImg && <video src={url} controls className="rounded-xl w-full max-h-96" />}
+                    {!url && <p className="text-xs text-muted">{t.qr.fileUnavailable}</p>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   )
 }
 
@@ -583,6 +883,31 @@ function Chip({ active, onClick, label }: { active: boolean; onClick: () => void
       {label}
     </button>
   )
+}
+
+function kindLabel(kind: IncidentKind, t: ReturnType<typeof useI18n>['t']): string {
+  switch (kind) {
+    case 'breakdown': return t.incidents.kindBreakdown
+    case 'broken': return t.incidents.kindBroken
+    case 'lost': return t.incidents.kindLost
+    default: return t.incidents.kindOther
+  }
+}
+
+function statusLabel(status: IncidentStatus, t: ReturnType<typeof useI18n>['t']): string {
+  switch (status) {
+    case 'new': return t.incidents.statusNew
+    case 'confirmed': return t.incidents.statusConfirmed
+    default: return t.incidents.statusRejected
+  }
+}
+
+function statusColor(status: IncidentStatus): string {
+  switch (status) {
+    case 'new': return 'bg-warn-soft text-warn'
+    case 'confirmed': return 'bg-ok-soft text-ok'
+    default: return 'bg-bad-soft text-bad'
+  }
 }
 
 function isFileImage(path: string): boolean {

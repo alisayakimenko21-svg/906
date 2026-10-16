@@ -3,7 +3,7 @@ import { toApiError } from '@/lib/errors'
 import { compressImage } from '@/lib/compress'
 import { resolveMime, validateVideo, isHeicFile, isImageFile } from '@/lib/files'
 import { currentDict } from '@/i18n'
-import type { SvApartment, SvNorm, SvItem, ApartmentNote, Contact } from '@/lib/database.types'
+import type { SvApartment, SvNorm, SvItem, ApartmentNote, Contact, Incident } from '@/lib/database.types'
 import { swrFetch, cacheKey, normCacheKey } from '@/lib/offline-cache'
 import { fetchAllPages } from '@/lib/paginate'
 
@@ -146,6 +146,17 @@ export async function fetchWhatsappContacts(): Promise<Contact[]> {
     .eq('has_whatsapp', true)
     .order('sort')
     .order('name')
+  if (error) throw toApiError(error, status)
+  return data ?? []
+}
+
+export async function fetchApartmentIncidents(apartmentId: number): Promise<Incident[]> {
+  const { data, error, status } = await supabase
+    .from('incidents')
+    .select('id,apartment_id,item_id,free_text,kind,qty,status,photo_paths,comment,created_by,created_at,resolved_by,resolved_at,resolution_note,client_op_id')
+    .eq('apartment_id', apartmentId)
+    .order('created_at', { ascending: false })
+    .limit(20)
   if (error) throw toApiError(error, status)
   return data ?? []
 }
