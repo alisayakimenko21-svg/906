@@ -6,7 +6,7 @@ import type { SvApartment, SvItem, IncidentKind } from '@/lib/database.types'
 import { useAuth } from '@/modules/core/store'
 import { useI18n } from '@/i18n'
 import { friendlyMessage } from '@/lib/errors'
-import { ArrowLeft, Camera, X, Loader2 } from 'lucide-react'
+import { ArrowLeft, Camera, X, Loader as Loader2 } from 'lucide-react'
 
 export function IncidentForm({ backTo }: { backTo?: string }) {
   const { t } = useI18n()
@@ -95,7 +95,7 @@ export function IncidentForm({ backTo }: { backTo?: string }) {
           <h1 className="text-lg font-semibold text-ink">{t.incidents.title}</h1>
         </div>
       </div>
-      <div className="px-4 pt-4 pb-28 space-y-4">
+      <div className="px-4 pt-4 pb-[calc(10rem+env(safe-area-inset-bottom,0px))] space-y-4">
         <Field label={t.incidents.apartment}>
           <select value={aptId ?? ''} onChange={(e) => setAptId(e.target.value ? Number(e.target.value) : null)}
             className="w-full bg-surface rounded-xl px-4 py-3 text-sm border border-line focus:border-accent focus:outline-none">
@@ -150,11 +150,11 @@ export function IncidentForm({ backTo }: { backTo?: string }) {
         </Field>
         {error && <p className="text-sm text-bad">{error}</p>}
       </div>
-      <div className="fixed bottom-16 left-0 right-0 bg-surface border-t border-line px-4 py-3 z-30">
-        <div className="max-w-lg mx-auto flex gap-3">
-          <button onClick={() => backTo ? navigate(backTo) : navigate(-1)} className="flex-1 bg-app text-ink rounded-xl py-3 font-medium">{t.incidents.cancel}</button>
+      <div className="fixed bottom-16 left-0 right-0 bg-surface/95 backdrop-blur border-t border-line px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] z-30">
+        <div className="max-w-lg mx-auto grid grid-cols-2 gap-3">
+          <button onClick={() => backTo ? navigate(backTo) : navigate(-1)} className="min-h-[48px] bg-app text-ink rounded-xl px-2 py-3 text-sm font-medium">{t.incidents.cancel}</button>
           <button onClick={handleSubmit} disabled={submitting || !isOnline}
-            className="flex-1 bg-accent text-white rounded-xl py-3 font-medium disabled:opacity-40 flex items-center justify-center gap-2">
+            className="min-h-[48px] bg-accent text-white rounded-xl px-2 py-3 text-sm font-medium disabled:opacity-40 flex items-center justify-center gap-2">
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             {isOnline ? t.incidents.submit : t.errors.needsNetworkAction}
           </button>

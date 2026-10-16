@@ -90,7 +90,7 @@ export function ApartmentDetail() {
         </div>
       </div>
 
-      <div className="px-4 pt-4 pb-28">
+      <div className="px-4 pt-4 pb-[calc(12rem+env(safe-area-inset-bottom,0px))]">
         {tab === 'norms' && (
           <div className="space-y-5">
             {norms.length === 0 && <p className="text-sm text-muted text-center mt-8">{t.apartments.noNorms}</p>}
@@ -125,16 +125,16 @@ export function ApartmentDetail() {
                 <p className="text-xs text-muted mt-1.5">{n(formatDateTime(note.created_at))}</p>
               </div>
             ))}
-            <div className="fixed bottom-20 left-0 right-0 bg-surface border-t border-line px-4 py-3">
+            <div className="fixed bottom-[7.5rem] left-0 right-0 z-10 bg-surface/95 backdrop-blur border-t border-line px-4 py-3">
               <div className="max-w-lg mx-auto flex gap-2">
                 <input
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   placeholder={t.apartments.commentPlaceholder}
-                  className="flex-1 bg-app rounded-xl px-4 py-2.5 text-sm border border-line focus:border-accent focus:outline-none"
+                  className="flex-1 min-w-0 bg-app rounded-xl px-4 py-2.5 text-sm border border-line focus:border-accent focus:outline-none"
                   onKeyDown={(e) => { if (e.key === 'Enter' && !sendingNote) handleAddNote() }}
                 />
-                <button onClick={handleAddNote} disabled={sendingNote || !noteText.trim()} className="bg-accent text-white rounded-xl px-4 py-2.5 disabled:opacity-40">
+                <button onClick={handleAddNote} aria-label={t.qr.send} disabled={sendingNote || !noteText.trim()} className="bg-accent text-white rounded-xl min-w-[44px] min-h-[44px] px-4 py-2.5 flex items-center justify-center disabled:opacity-40">
                   <Send className="w-4 h-4" />
                 </button>
               </div>
@@ -143,18 +143,18 @@ export function ApartmentDetail() {
         )}
       </div>
 
-      <div className="fixed bottom-16 left-0 right-0 z-20 px-4 pb-2">
-        <div className="max-w-lg mx-auto flex gap-2">
+      <div className="fixed bottom-16 left-0 right-0 z-20 bg-surface/95 backdrop-blur border-t border-line px-4 pt-3 pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]">
+        <div className="max-w-lg mx-auto grid grid-cols-2 gap-2">
           <button
             onClick={() => navigate(`/sv/apartments/${aptId}/clean`)}
-            className="flex-1 bg-accent text-white rounded-xl py-3 font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
+            className="min-h-[48px] bg-accent text-white rounded-xl px-2 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
           >
             <CheckCircle2 className="w-5 h-5" />
             {t.apartments.cleaned}
           </button>
           <button
             onClick={() => navigate(`/sv/incidents/new?apt=${aptId}`)}
-            className="flex-1 bg-surface border border-line text-ink rounded-xl py-3 font-medium flex items-center justify-center gap-2 transition-colors hover:bg-app"
+            className="min-h-[48px] bg-surface border border-line text-ink rounded-xl px-2 py-3 text-sm font-medium flex items-center justify-center gap-2 transition-colors hover:bg-app"
           >
             <Wrench className="w-5 h-5" />
             {t.apartments.reportBreakdown}
