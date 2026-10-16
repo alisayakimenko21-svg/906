@@ -6,6 +6,8 @@ import { useI18n } from '@/i18n'
 import { formatDateTime } from '@/lib/format'
 import { toast, errorMessage } from '@/lib/toast'
 import { Wrench, Package, CircleAlert as AlertCircle, Check, X, Loader as Loader2 } from 'lucide-react'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 const statusColors: Record<IncidentStatus, string> = {
   new: 'bg-warn-soft text-warn',
@@ -36,17 +38,22 @@ export function AdminIncidents() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [apartments, setApartments] = useState<Apartment[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [actionIncident, setActionIncident] = useState<{ incident: Incident; decision: 'confirm' | 'reject' } | null>(null)
   const [note, setNote] = useState('')
   const [force, setForce] = useState(false)
   const [processing, setProcessing] = useState(false)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setLoadError(null)
     Promise.all([fetchAllIncidents(), fetchApartmentsAdmin()])
       .then(([inc, apts]) => { setIncidents(inc); setApartments(apts) })
-      .catch(() => {})
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { load() }, [])
 
   const aptMap = useMemo(() => new Map(apartments.map((a) => [a.id, a.code])), [apartments])
 
@@ -69,6 +76,7 @@ export function AdminIncidents() {
   }
 
   if (loading) return <div className="px-4 pt-8 text-center text-muted">{t.app.loading}</div>
+  if (loadError) return <ErrorState onRetry={load} />
 
   return (
     <div className="px-4 pt-6 pb-28">

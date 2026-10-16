@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { fetchApartments } from '@/modules/apartments/api'
-import { getOutboxSummary, getOutboxEntries, subscribe, flushOutbox, deleteFailedEntry, type OutboxEntry } from '@/lib/outbox'
+import { getOutboxSummary, getOutboxEntries, subscribe, flushOutbox, deleteFailedEntry, retryFailedEntry, type OutboxEntry } from '@/lib/outbox'
 import type { SvApartment, AptType } from '@/lib/database.types'
 import { useAuth } from '@/modules/core/store'
 import { useI18n } from '@/i18n'
 import { isToday } from '@/lib/format'
-import { Search, CheckCircle2, ChevronRight, RefreshCw, Trash2, AlertTriangle } from 'lucide-react'
+import { Search, CircleCheck as CheckCircle2, ChevronRight, RefreshCw, Trash2, TriangleAlert as AlertTriangle } from 'lucide-react'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 const typeOrder: AptType[] = ['studio', '1br', '2br']
 
@@ -25,6 +27,7 @@ export function ApartmentList() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
   const [failedCount, setFailedCount] = useState(0)
   const [failedEntries, setFailedEntries] = useState<OutboxEntry[]>([])
@@ -34,7 +37,7 @@ export function ApartmentList() {
     if (!profile) return
     fetchApartments(profile.id)
       .then(setApartments)
-      .catch(() => {})
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
 
     const refresh = () => {
@@ -59,6 +62,11 @@ export function ApartmentList() {
     } finally {
       setRetrying(false)
     }
+  }
+
+  const handleRetryFailed = async (id: string) => {
+    await retryFailedEntry(id)
+    if (profile) await flushOutbox(profile.id)
   }
 
   const handleDeleteFailed = async (id: string) => {
@@ -126,7 +134,7 @@ export function ApartmentList() {
             <div key={entry.id} className="flex items-center justify-between gap-2 text-xs text-bad bg-surface rounded-lg px-3 py-2">
               <span className="truncate flex-1">{entry.lastError ?? 'Error'}</span>
               <div className="flex items-center gap-2 shrink-0">
-                <button onClick={handleRetry} disabled={retrying} className="font-medium text-warn disabled:opacity-40">
+                <button onClick={() => handleRetryFailed(entry.id)} disabled={retrying} className="font-medium text-warn disabled:opacity-40">
                   {t.errors.outboxRetry}
                 </button>
                 <button onClick={() => handleDeleteFailed(entry.id)} className="font-medium text-bad">
@@ -140,6 +148,8 @@ export function ApartmentList() {
 
       {loading ? (
         <p className="text-center text-muted mt-8">{t.app.loading}</p>
+      ) : loadError ? (
+        <ErrorState onRetry={() => { if (profile) { setLoading(true); setLoadError(null); fetchApartments(profile.id).then(setApartments).catch((e) => setLoadError(friendlyMessage(e))).finally(() => setLoading(false)) } }} />
       ) : (
         <div className="space-y-6">
           {grouped.map(([type, apts]) => (

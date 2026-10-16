@@ -109,7 +109,12 @@ export const useAuth = create<AuthStore>((set, get) => ({
     const email = `${login.toLowerCase().trim()}@sklad.internal`
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
     if (authError) {
-      set({ error: currentDict().invalidCredentials })
+      const apiError = toApiError(authError)
+      if (apiError.isNetwork) {
+        set({ error: currentDict().errors.network })
+      } else {
+        set({ error: currentDict().invalidCredentials })
+      }
       return
     }
     const { data: { session } } = await supabase.auth.getSession()
@@ -198,8 +203,10 @@ export function setupAuthListener() {
     const store = useAuth.getState()
 
     if (event === 'SIGNED_OUT') {
+      if (useAuth.getState().state === 'login') return
       stopOutboxSync()
-      store.signOut()
+      setSentryUser(null)
+      useAuth.setState({ state: 'login', profile: null, error: null })
       return
     }
 

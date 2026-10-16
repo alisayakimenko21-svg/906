@@ -16,6 +16,8 @@ import { useI18n } from '@/i18n'
 import { toast, errorMessage } from '@/lib/toast'
 import { Plus, Trash2, CreditCard as Edit3, X, Check, ChevronRight, ChevronDown, Package, Folder } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 const baseUnitOptions: BaseUnit[] = ['pcs', 'g', 'ml']
 export function CatalogPage() {
@@ -27,6 +29,7 @@ export function CatalogPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [expandedCat, setExpandedCat] = useState<number | null>(null)
   const [editingCat, setEditingCat] = useState<Category | null>(null)
   const [addingCat, setAddingCat] = useState(false)
@@ -36,12 +39,14 @@ export function CatalogPage() {
   const [deleteItemTarget, setDeleteItemTarget] = useState<number | null>(null)
 
   const load = () => {
+    setLoading(true)
+    setLoadError(null)
     Promise.all([fetchCategories(), fetchItems()])
       .then(([c, i]) => {
         setCategories(c)
         setItems(i)
       })
-      .catch((e) => toast(errorMessage(e), 'error'))
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
   }
 
@@ -60,6 +65,7 @@ export function CatalogPage() {
   if (loading) {
     return <div className="px-4 pt-8 text-center text-muted">{t.app.loading}</div>
   }
+  if (loadError) return <ErrorState onRetry={load} />
 
   return (
     <div className="px-4 pt-5 pb-28 lg:px-0 lg:pt-0">
@@ -323,7 +329,7 @@ function ItemEditor({
   const [supplierId, setSupplierId] = useState<number | null>(item?.supplier_id ?? null)
 
   useEffect(() => {
-    fetchSuppliers().then(setSuppliers).catch(() => {})
+    fetchSuppliers().then(setSuppliers).catch((e) => console.error(friendlyMessage(e)))
   }, [])
 
   useEffect(() => {

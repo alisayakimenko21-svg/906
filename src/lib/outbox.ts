@@ -20,6 +20,7 @@ export interface OutboxEntry {
 }
 
 const OUTBOX_KEY = 'cleaning-outbox'
+const MAX_ATTEMPTS = 10
 
 type Listener = () => void
 const listeners = new Set<Listener>()
@@ -69,71 +70,12 @@ export async function deleteFailedEntry(id: string): Promise<void> {
   await removeOutboxEntry(id)
 }
 
-let flushInProgress = false
-
-export async function flushOutbox(userId: string): Promise<void> {
-  if (flushInProgress) return
-  flushInProgress = true
-  try {
-    const entries = await getOutboxEntries(userId)
-    if (entries.length === 0) return
-
-    let anySynced = false
-
-    for (const entry of entries) {
-      const { error } = await supabase.rpc('complete_cleaning', {
-        p_apartment_id: entry.apartmentId,
-        p_cleaned_at: entry.cleanedAt,
-        p_client_op_id: entry.clientOpId,
-        p_staff_ids: entry.staffIds,
-        p_lead_staff_id: entry.leadStaffId,
-        p_note: entry.note,
-      })
-
-      if (!error) {
-        await removeOutboxEntryById(entry.id)
-        anySynced = true
-        continue
-      }
-
-      const apiError = toApiError(error)
-
-      if (apiError.code === '23505') {
-        await removeOutboxEntryById(entry.id)
-        anySynced = true
-        continue
-      }
-
-      if (apiError.isNetwork) {
-        await updateOutboxEntry(entry.id, (e) => {
-          e.attempts += 1
-          e.lastError = apiError.message
-        })
-        break
-      }
-
-      await updateOutboxEntry(entry.id, (e) => {
-        e.status = 'failed'
-        e.lastError = apiError.message
-        e.attempts += 1
-      })
-      notify()
-    }
-
-    if (anySynced) {
-      const d = currentDict()
-      toast(d.errors.outboxSynced, 'success')
-    }
-  } finally {
-    flushInProgress = false
-    notify()
-  }
-}
-
-async function removeOutboxEntryById(id: string): Promise<void> {
-  await update<OutboxEntry[]>(OUTBOX_KEY, (existing) =>
-    (existing ?? []).filter((e) => e.id !== id),
-  )
+export async function retryFailedEntry(id: string): Promise<void> {
+  await updateOutboxEntry(id, (e) => {
+    e.status = 'pending'
+    e.attempts = 0
+    e.lastError = null
+  })
   notify()
 }
 
@@ -145,6 +87,90 @@ async function updateOutboxEntry(id: string, mutate: (e: OutboxEntry) => void): 
     mutate(list[idx])
     return list
   })
+}
+
+let flushInProgress = false
+
+export async function flushOutbox(userId: string): Promise<void> {
+  if (flushInProgress) return
+  flushInProgress = true
+  try {
+    const entries = await getOutboxEntries(userId)
+    const pending = entries.filter((e) => e.status === 'pending')
+    if (pending.length === 0) return
+
+    let anySynced = false
+
+    for (const entry of pending) {
+      const { error } = await supabase.rpc('complete_cleaning', {
+        p_apartment_id: entry.apartmentId,
+        p_cleaned_at: entry.cleanedAt,
+        p_client_op_id: entry.clientOpId,
+        p_staff_ids: entry.staffIds,
+        p_lead_staff_id: entry.leadStaffId,
+        p_note: entry.note,
+      })
+
+      if (!error) {
+        await removeOutboxEntry(entry.id)
+        anySynced = true
+        continue
+      }
+
+      const apiError = toApiError(error)
+
+      if (apiError.code === '23505') {
+        await removeOutboxEntry(entry.id)
+        anySynced = true
+        continue
+      }
+
+      if (apiError.isAuth) {
+        await updateOutboxEntry(entry.id, (e) => {
+          e.attempts += 1
+          e.lastError = apiError.message
+        })
+        notify()
+        const { data: { session } } = await supabase.auth.refreshSession()
+        if (!session) {
+          toast(currentDict().errors.auth, 'error')
+        }
+        break
+      }
+
+      if (apiError.isNetwork) {
+        await updateOutboxEntry(entry.id, (e) => {
+          e.attempts += 1
+          e.lastError = apiError.message
+        })
+        notify()
+        break
+      }
+
+      const newAttempts = entry.attempts + 1
+      if (newAttempts >= MAX_ATTEMPTS) {
+        await updateOutboxEntry(entry.id, (e) => {
+          e.status = 'failed'
+          e.lastError = apiError.message
+          e.attempts = newAttempts
+        })
+      } else {
+        await updateOutboxEntry(entry.id, (e) => {
+          e.attempts = newAttempts
+          e.lastError = apiError.message
+        })
+      }
+      notify()
+    }
+
+    if (anySynced) {
+      const d = currentDict()
+      toast(d.errors.outboxSynced, 'success')
+    }
+  } finally {
+    flushInProgress = false
+    notify()
+  }
 }
 
 let intervalId: ReturnType<typeof setInterval> | null = null
@@ -166,7 +192,7 @@ export function startOutboxSync(userId: string): void {
 
   intervalId = setInterval(async () => {
     const summary = await getOutboxSummary(userId)
-    if (summary.pending > 0 || summary.failed > 0) {
+    if (summary.pending > 0) {
       flushOutbox(userId).catch(() => {})
     }
   }, 30000)

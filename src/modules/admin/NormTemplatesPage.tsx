@@ -5,6 +5,8 @@ import type { WarehouseStockRow, NormRuleRow, NormType, AptType, BaseUnit } from
 import { useI18n } from '@/i18n'
 import { toast, errorMessage } from '@/lib/toast'
 import { ArrowLeft, Plus, Trash2, CreditCard as Edit3, X, Check } from 'lucide-react'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 const aptTypes: AptType[] = ['studio', '1br', '2br']
 
@@ -31,18 +33,21 @@ export function NormTemplatesPage() {
   const [norms, setNorms] = useState<NormRuleRow[]>([])
   const [stock, setStock] = useState<WarehouseStockRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [editingNorm, setEditingNorm] = useState<NormRuleRow | null>(null)
   const [addingNormType, setAddingNormType] = useState<NormType | null>(null)
 
   const loadNorms = (type: AptType) => {
+    setLoading(true)
+    setLoadError(null)
     fetchTemplateNorms(type)
       .then(setNorms)
-      .catch(() => {})
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    fetchWarehouseStock().then(setStock).catch(() => {})
+    fetchWarehouseStock().then(setStock).catch((e) => console.error(friendlyMessage(e)))
   }, [])
 
   useEffect(() => {
@@ -88,6 +93,7 @@ export function NormTemplatesPage() {
   if (loading) {
     return <div className="px-4 pt-8 text-center text-muted">{t.app.loading}</div>
   }
+  if (loadError) return <ErrorState onRetry={() => loadNorms(selectedType)} />
 
   return (
     <div className="min-h-screen bg-app">

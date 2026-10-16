@@ -72,7 +72,7 @@ export function UsersPage() {
       load()
     } catch (e) {
       const msg = errorMessage(e)
-      if (msg === 'self') toast(t.admin.users.selfDeactivateError, 'error')
+      if (msg === 'self_deactivate') toast(t.admin.users.selfDeactivateError, 'error')
       else if (msg === 'last_admin') toast(t.admin.users.lastAdminError, 'error')
       else toast(msg, 'error')
     }
@@ -85,7 +85,7 @@ export function UsersPage() {
       load()
     } catch (e) {
       const msg = errorMessage(e)
-      if (msg === 'self') toast(t.admin.users.selfDeleteError, 'error')
+      if (msg === 'self_delete') toast(t.admin.users.selfDeleteError, 'error')
       else if (msg === 'last_admin') toast(t.admin.users.lastAdminError, 'error')
       else toast(msg, 'error')
     }

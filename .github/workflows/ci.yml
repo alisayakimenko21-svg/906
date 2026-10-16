@@ -33,6 +33,12 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
         if: env.HAS_E2E == 'true'
+      - run: npm run build
+        if: env.HAS_E2E == 'true'
+      - run: |
+          npx vite preview --port 4173 &
+          npx wait-on http://localhost:4173
+        if: env.HAS_E2E == 'true'
       - run: npx playwright test
         if: env.HAS_E2E == 'true'
         env:

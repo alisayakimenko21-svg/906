@@ -126,10 +126,14 @@ export async function createSignedUrls(paths: string[]): Promise<Map<string, str
     .createSignedUrls(missing, SIGNED_URL_TTL)
   if (error) throw toApiError(error)
   for (const item of data ?? []) {
-    if (item.signedUrl && item.path) {
-      result.set(item.path, item.signedUrl)
-      signedUrlCache.set(item.path, { url: item.signedUrl, expires: Date.now() + SIGNED_URL_TTL * 1000 })
+    if (item.error || !item.signedUrl || !item.path) {
+      if (item.path) {
+        signedUrlCache.delete(item.path)
+      }
+      continue
     }
+    result.set(item.path, item.signedUrl)
+    signedUrlCache.set(item.path, { url: item.signedUrl, expires: Date.now() + SIGNED_URL_TTL * 1000 })
   }
   return result
 }

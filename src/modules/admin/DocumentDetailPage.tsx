@@ -13,6 +13,7 @@ import { useI18n } from '@/i18n'
 import { formatDateTime, formatQty } from '@/lib/format'
 import { toast, errorMessage } from '@/lib/toast'
 import { ArrowLeft, Printer, Upload, Trash2, FileText, Loader as Loader2 } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 
 interface DocMoveRow {
   id: number
@@ -41,6 +42,7 @@ export function DocumentDetailPage() {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<AttachmentRow | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -101,7 +103,6 @@ export function DocumentDetailPage() {
   }
 
   const handleDeleteAttachment = async (att: AttachmentRow) => {
-    if (!confirm(t.admin.documents.confirmDeleteAttachment)) return
     try {
       await deleteAttachment(att.id, att.storage_path)
       setAttachments((prev) => prev.filter((a) => a.id !== att.id))
@@ -256,7 +257,7 @@ export function DocumentDetailPage() {
                 </button>
                 <span className="text-xs text-muted shrink-0">{formatDateTime(att.created_at)}</span>
                 <button
-                  onClick={() => handleDeleteAttachment(att)}
+                  onClick={() => setDeleteTarget(att)}
                   className="text-muted hover:text-bad shrink-0"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -266,6 +267,17 @@ export function DocumentDetailPage() {
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={t.admin.documents.confirmDeleteAttachment}
+        onConfirm={() => {
+          const target = deleteTarget
+          setDeleteTarget(null)
+          if (target) handleDeleteAttachment(target)
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

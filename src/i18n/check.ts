@@ -1,5 +1,8 @@
 import { en } from './en'
 import { ar } from './ar'
+import { ru } from './ru'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, extname, basename } from 'node:path'
 
 type Dict = typeof en
 
@@ -16,23 +19,74 @@ function collectKeys(obj: Record<string, unknown>, prefix = ''): string[] {
   return keys
 }
 
-const enKeys = new Set(collectKeys(en as unknown as Record<string, unknown>))
-const arKeys = new Set(collectKeys(ar as unknown as Record<string, unknown>))
-
-const missingInAr = [...enKeys].filter((k) => !arKeys.has(k))
-const missingInEn = [...arKeys].filter((k) => !enKeys.has(k))
-
-if (missingInAr.length > 0) {
-  console.error('Missing keys in ar.ts:')
-  missingInAr.forEach((k) => console.error(`  - ${k}`))
-}
-if (missingInEn.length > 0) {
-  console.error('Missing keys in en.ts:')
-  missingInEn.forEach((k) => console.error(`  - ${k}`))
+const dicts: Record<string, Set<string>> = {
+  en: new Set(collectKeys(en as unknown as Record<string, unknown>)),
+  ar: new Set(collectKeys(ar as unknown as Record<string, unknown>)),
+  ru: new Set(collectKeys(ru as unknown as Record<string, unknown>)),
 }
 
-if (missingInAr.length > 0 || missingInEn.length > 0) {
+const pairs: [string, string][] = [['ru', 'en'], ['ru', 'ar'], ['en', 'ar']]
+let hasMissing = false
+
+for (const [a, b] of pairs) {
+  const missingInB = [...dicts[a]].filter((k) => !dicts[b].has(k))
+  if (missingInB.length > 0) {
+    console.error(`Missing keys in ${b} (compared to ${a}):`)
+    missingInB.forEach((k) => console.error(`  - ${k}`))
+    hasMissing = true
+  }
+}
+
+if (hasMissing) {
   process.exit(1)
 } else {
-  console.log('i18n keys are consistent across en and ar.')
+  console.log('i18n keys are consistent across ru, en, and ar.')
+}
+
+const CYRILLIC_RE = /[\u0400-\u04FF]/
+const SRC_DIR = join(process.cwd(), 'src')
+const I18N_DIR = join(SRC_DIR, 'i18n')
+const EXCLUDED_EXTS = new Set(['.css', '.svg', '.png', '.jpg', '.webp', '.ico'])
+const COMMENT_RE = /^\s*(\/\/|\/\*|\*|<!--)/
+
+function scanDir(dir: string, files: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const fullPath = join(dir, entry)
+    const stat = statSync(fullPath)
+    if (stat.isDirectory()) {
+      scanDir(fullPath, files)
+    } else {
+      const ext = extname(fullPath)
+      const base = basename(fullPath)
+      if (EXCLUDED_EXTS.has(ext)) continue
+      if (base.includes('.test.')) continue
+      if (fullPath.startsWith(I18N_DIR)) continue
+      files.push(fullPath)
+    }
+  }
+  return files
+}
+
+const files = scanDir(SRC_DIR)
+const cyrillicFindings: string[] = []
+
+for (const file of files) {
+  const content = readFileSync(file, 'utf-8')
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (COMMENT_RE.test(line)) continue
+    if (CYRILLIC_RE.test(line)) {
+      const relPath = file.replace(process.cwd() + '/', '')
+      cyrillicFindings.push(`${relPath}:${i + 1}: ${line.trim().slice(0, 120)}`)
+    }
+  }
+}
+
+if (cyrillicFindings.length > 0) {
+  console.error('\nCyrillic characters found outside src/i18n:')
+  cyrillicFindings.forEach((f) => console.error(`  ${f}`))
+  process.exit(1)
+} else {
+  console.log('No Cyrillic characters found outside src/i18n.')
 }

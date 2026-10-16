@@ -4,6 +4,8 @@ import { fetchApartmentsAdmin, fetchApartmentGaps, fetchBuildings } from '@/modu
 import type { Apartment, Building, ApartmentGapRow, AptType } from '@/lib/database.types'
 import { useI18n } from '@/i18n'
 import { Search } from 'lucide-react'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 function pctColor(p: number): string {
   if (p >= 100) return 'var(--ok)'
@@ -38,17 +40,22 @@ export function AdminApartmentList() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true)
+    setLoadError(null)
     Promise.all([fetchApartmentsAdmin(), fetchBuildings(), fetchApartmentGaps()])
       .then(([a, b, g]) => {
         setApartments(a)
         setBuildings(b)
         setGaps(g)
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { load() }, [])
 
   const buildingMap = useMemo(() => new Map(buildings.map((b) => [b.id, b.name])), [buildings])
 
@@ -86,6 +93,7 @@ export function AdminApartmentList() {
   if (loading) {
     return <div className="px-4 pt-8 text-center text-muted">{t.app.loading}</div>
   }
+  if (loadError) return <ErrorState onRetry={load} />
 
   return (
     <div className="px-4 pt-5 pb-28 lg:px-0 lg:pt-0">

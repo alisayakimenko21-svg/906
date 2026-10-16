@@ -5,18 +5,22 @@ import { useI18n } from '@/i18n'
 import { toast, errorMessage } from '@/lib/toast'
 import { Plus, Trash2, CreditCard as Edit3, X, Check, Phone, MessageCircle } from 'lucide-react'
 import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 export function AdminContacts() {
   const { t } = useI18n()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Contact | null>(null)
   const [adding, setAdding] = useState(false)
 
-  const load = () => { fetchAllContacts().then(setContacts).catch(() => {}).finally(() => setLoading(false)) }
+  const load = () => { setLoading(true); setLoadError(null); fetchAllContacts().then(setContacts).catch((e) => setLoadError(friendlyMessage(e))).finally(() => setLoading(false)) }
   useEffect(() => { load() }, [])
 
   if (loading) return <div className="px-4 pt-8 text-center text-muted">{t.app.loading}</div>
+  if (loadError) return <ErrorState onRetry={load} />
 
   return (
     <div className="px-4 pt-6 pb-28">

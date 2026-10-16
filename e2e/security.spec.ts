@@ -22,15 +22,39 @@ async function svClient() {
   return c
 }
 
+async function adminClient() {
+  const c = createClient(SUPA_URL, SUPA_ANON)
+  const email = `${ADMIN_LOGIN.toLowerCase().trim()}@sklad.internal`
+  await c.auth.signInWithPassword({ email, password: ADMIN_PW })
+  return c
+}
+
+const ALLOWED_ERROR_CODES = ['42501', 'PGRST202']
+
+function expectBlocked(error: unknown) {
+  expect(error).toBeTruthy()
+  const code = (error as { code?: string }).code
+  expect(ALLOWED_ERROR_CODES).toContain(code)
+}
+
 test.describe('Security — anon', () => {
   test('privileged RPCs are blocked for anon', async () => {
     const c = anonClient()
-    const { error: e1 } = await c.rpc('_insert_move' as never, {} as never)
-    expect(e1).toBeTruthy()
-    const { error: e2 } = await c.rpc('_next_doc_number' as never, {} as never)
-    expect(e2).toBeTruthy()
-    const { error: e3 } = await c.rpc('post_move' as never, {} as never)
-    expect(e3).toBeTruthy()
+    const { error: e1 } = await c.rpc('_insert_move' as never, {
+      p_item: 1, p_from: 1, p_to: 2, p_qty: 1, p_cost: null,
+      p_src: 'manual', p_src_id: null, p_apt: null, p_staff: null,
+      p_doc: null, p_note: null, p_moved: new Date().toISOString(),
+      p_reverses: null,
+    } as never)
+    expectBlocked(e1)
+    const { error: e2 } = await c.rpc('_next_doc_number' as never, {
+      p_type: 'receipt',
+    } as never)
+    expectBlocked(e2)
+    const { error: e3 } = await c.rpc('post_move' as never, {
+      p_op: 'receipt', p_item: 1, p_qty: 1,
+    } as never)
+    expectBlocked(e3)
   })
 
   test('needs_bootstrap works for anon', async () => {
@@ -44,12 +68,20 @@ test.describe('Security — anon', () => {
 test.describe('Security — supervisor', () => {
   test('privileged RPCs are blocked for supervisor', async () => {
     const c = await svClient()
-    const { error: e1 } = await c.rpc('_insert_move' as never, {} as never)
-    expect(e1).toBeTruthy()
-    const { error: e2 } = await c.rpc('_reverse_cleaning_moves' as never, {} as never)
-    expect(e2).toBeTruthy()
+    const { error: e1 } = await c.rpc('_insert_move' as never, {
+      p_item: 1, p_from: 1, p_to: 2, p_qty: 1, p_cost: null,
+      p_src: 'manual', p_src_id: null, p_apt: null, p_staff: null,
+      p_doc: null, p_note: null, p_moved: new Date().toISOString(),
+      p_reverses: null,
+    } as never)
+    expectBlocked(e1)
+    const { error: e2 } = await c.rpc('_reverse_cleaning_moves' as never, {
+      p_event: '00000000-0000-0000-0000-000000000000',
+      p_reason: 'test',
+    } as never)
+    expectBlocked(e2)
     const { error: e3 } = await c.rpc('post_document' as never, {} as never)
-    expect(e3).toBeTruthy()
+    expectBlocked(e3)
   })
 
   test('supervisor cannot read stock_moves or items', async () => {
@@ -68,9 +100,55 @@ test.describe('Security — supervisor', () => {
     }
   })
 
-  test('supervisor cannot update events', async () => {
+  test('supervisor cannot update events.processed_at', async () => {
     const c = await svClient()
-    const { error } = await c.from('events').update({ processed: true } as never).eq('id', 999999 as never)
+    const admin = await adminClient()
+
+    const { data: ev } = await admin
+      .from('events')
+      .select('id,processed_at')
+      .order('id', { ascending: false })
+      .limit(1)
+      .single()
+
+    const targetId = ev?.id ?? 999999
+    const beforeValue = ev?.processed_at ?? null
+
+    const { error } = await c
+      .from('events')
+      .update({ processed_at: new Date().toISOString() } as never)
+      .eq('id', targetId as never)
     expect(error).toBeTruthy()
+
+    const { data: evAfter } = await admin
+      .from('events')
+      .select('processed_at')
+      .eq('id', targetId)
+      .single()
+    expect(evAfter?.processed_at).toBe(beforeValue)
+  })
+})
+
+test.describe('Security — stock_moves integrity', () => {
+  test('blocked RPCs do not create stock_moves', async () => {
+    const admin = await adminClient()
+
+    const { count: before } = await admin
+      .from('stock_moves')
+      .select('id', { count: 'exact', head: true })
+
+    const c = await svClient()
+    await c.rpc('_insert_move' as never, {
+      p_item: 1, p_from: 1, p_to: 2, p_qty: 1, p_cost: null,
+      p_src: 'manual', p_src_id: null, p_apt: null, p_staff: null,
+      p_doc: null, p_note: null, p_moved: new Date().toISOString(),
+      p_reverses: null,
+    } as never).catch(() => {})
+
+    const { count: after } = await admin
+      .from('stock_moves')
+      .select('id', { count: 'exact', head: true })
+
+    expect(after).toBe(before)
   })
 })

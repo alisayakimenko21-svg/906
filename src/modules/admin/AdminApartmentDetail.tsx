@@ -19,6 +19,8 @@ import { useI18n } from '@/i18n'
 import { formatDateTime, formatQty, cairoLocalToISO } from '@/lib/format'
 import { toast, errorMessage } from '@/lib/toast'
 import { ClipboardList, History, Plus, Trash2, CreditCard as Edit3, Gift, RotateCcw, X, Check, Loader as Loader2 } from 'lucide-react'
+import { ErrorState } from '@/components/ErrorState'
+import { friendlyMessage } from '@/lib/errors'
 
 type Tab = 'norms' | 'history'
 
@@ -57,6 +59,7 @@ export function AdminApartmentDetail() {
   const [stock, setStock] = useState<WarehouseStockRow[]>([])
   const [tab, setTab] = useState<Tab>('norms')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [issueResult, setIssueResult] = useState<IssueMissingResult | null>(null)
   const [issuing, setIssuing] = useState(false)
   const [editingNorm, setEditingNorm] = useState<NormRuleRow | null>(null)
@@ -68,6 +71,8 @@ export function AdminApartmentDetail() {
 
   const loadAll = () => {
     if (!aptId) return
+    setLoading(true)
+    setLoadError(null)
     Promise.all([
       fetchApartmentsAdmin(),
       fetchApartmentGaps(),
@@ -82,13 +87,13 @@ export function AdminApartmentDetail() {
         setGaps(ga.filter((g) => g.apartment_id === aptId))
         setOverrideNorms(norms)
         if (apt) {
-          fetchTemplateNorms(apt.type).then(setTemplateNorms).catch(() => {})
+          fetchTemplateNorms(apt.type).then(setTemplateNorms).catch((e) => console.error(friendlyMessage(e)))
         }
         setEvents(ev)
         setStaffList(st)
         setStock(wh)
       })
-      .catch(() => {})
+      .catch((e) => setLoadError(friendlyMessage(e)))
       .finally(() => setLoading(false))
   }
 
@@ -178,6 +183,8 @@ export function AdminApartmentDetail() {
       <aside className="fixed top-0 right-0 bottom-0 w-full max-w-[440px] bg-surface z-[61] overflow-auto border-l border-line anim-drawer">
         {loading ? (
           <div className="p-6 text-center text-muted text-sm">{t.app.loading}</div>
+        ) : loadError ? (
+          <div className="p-6"><ErrorState onRetry={loadAll} /></div>
         ) : !apartment ? (
           <div className="p-6 text-center text-muted text-sm">{t.common.notFound}</div>
         ) : (
