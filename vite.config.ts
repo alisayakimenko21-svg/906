@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['favicon.png', 'icons/app-icon-transparent-192.png', 'icons/app-icon-transparent-512.png', 'icons/maskable-512.png'],
+      includeAssets: ['favicon.png', 'icons/app-icon-transparent-192.png', 'icons/app-icon-transparent-512.png', 'icons/maskable-512.png', 'qr.html', 'qr-manifest.webmanifest'],
       manifest: {
         id: '/',
         scope: '/',
@@ -27,7 +27,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,webmanifest}'],
         navigateFallback: '/index.html',
         runtimeCaching: [
           {
@@ -38,6 +38,14 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        qr: fileURLToPath(new URL('./qr.html', import.meta.url)),
+      },
+    },
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

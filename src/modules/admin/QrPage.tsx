@@ -91,7 +91,7 @@ export function QrPage() {
   const generateQr = useCallback(async (aptId: number, url: string) => {
     const cached = qrCache.get(aptId)
     if (cached) return cached
-    const dataUrl = await QRCode.toDataURL(`${normalizeBaseUrl(url)}/qr/${aptId}`, { width: 256, margin: 1 })
+    const dataUrl = await QRCode.toDataURL(`${normalizeBaseUrl(url)}/qr.html#/qr/${aptId}`, { width: 256, margin: 1 })
     setQrCache((prev) => new Map(prev).set(aptId, dataUrl))
     return dataUrl
   }, [qrCache])
@@ -116,7 +116,7 @@ export function QrPage() {
 
   const copyLink = async (aptId: number) => {
     try {
-      await navigator.clipboard.writeText(`${normalizeBaseUrl(baseUrl)}/qr/${aptId}`)
+      await navigator.clipboard.writeText(`${normalizeBaseUrl(baseUrl)}/qr.html#/qr/${aptId}`)
       toast(t.qr.linkCopied, 'success')
     } catch {
       toast(t.common.clipboardError, 'error')
