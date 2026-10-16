@@ -12,7 +12,7 @@ export function initSentry() {
     tracesSampleRate: 0.1,
     beforeSend(event) {
       if (event.request) {
-        event.request.cookies = undefined as unknown as string
+        event.request.cookies = undefined as unknown as Record<string, string>
         event.request.headers = undefined as unknown as Record<string, string>
         event.request.data = undefined as unknown as string
       }
